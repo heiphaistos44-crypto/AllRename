@@ -41,12 +41,17 @@ public static class LogService
         return Task.CompletedTask;
     }
 
-    public static void PurgeOldLogs(int keepDays = 30)
+    public static async Task PurgeOldLogsAsync(int keepDays = 30)
     {
-        if (!Directory.Exists(LogDir)) return;
-        var cutoff = DateTime.Now.AddDays(-keepDays);
-        foreach (var file in Directory.GetFiles(LogDir, "*.log"))
-            if (File.GetLastWriteTime(file) < cutoff)
-                File.Delete(file);
+        await _lock.WaitAsync();
+        try
+        {
+            if (!Directory.Exists(LogDir)) return;
+            var cutoff = DateTime.Now.AddDays(-keepDays);
+            foreach (var file in Directory.GetFiles(LogDir, "*.log"))
+                if (File.GetLastWriteTime(file) < cutoff)
+                    File.Delete(file);
+        }
+        finally { _lock.Release(); }
     }
 }

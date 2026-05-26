@@ -34,6 +34,12 @@ public sealed class QBittorrentService : ITorrentService, IDisposable
 
     public async Task<bool> ConnectAsync(string url, string username, string password, CancellationToken ct = default)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            await LogService.WriteAsync(LogLevel.Error, $"qBittorrent URL invalide : {url}");
+            return false;
+        }
         _baseUrl = url.TrimEnd('/');
         IsConnected = false;
         try
@@ -108,12 +114,21 @@ public sealed class QBittorrentService : ITorrentService, IDisposable
                 Progress = f.Progress
             }).ToList() ?? new();
         }
-        catch { return new(); }
+        catch (Exception ex)
+        {
+            await LogService.WriteAsync(LogLevel.Error, $"qBittorrent GetFiles '{hash}': {ex.Message}");
+            return new();
+        }
     }
 
     public async Task<bool> RenameFileAsync(TorrentEntry torrent, TorrentFileEntry file, string newName, CancellationToken ct = default)
     {
         if (!IsConnected) return false;
+        if (newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            await LogService.WriteAsync(LogLevel.Error, $"qBit RenameFile : nom invalide '{newName}'");
+            return false;
+        }
         try
         {
             // Construire le nouveau chemin relatif (garder le dossier parent)

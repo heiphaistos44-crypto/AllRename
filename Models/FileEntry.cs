@@ -23,7 +23,7 @@ public class FileEntry : INotifyPropertyChanged
         set { _newName = value; OnPropertyChanged(); OnPropertyChanged(nameof(NewPath)); }
     }
 
-    public string NewPath => Path.Combine(SourceDirectory, NewName);
+    public string NewPath => string.IsNullOrWhiteSpace(NewName) ? SourcePath : Path.Combine(SourceDirectory, NewName);
 
     public MatchStatus Status
     {

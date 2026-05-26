@@ -24,6 +24,12 @@ public sealed class TransmissionService : ITorrentService, IDisposable
 
     public async Task<bool> ConnectAsync(string url, string username, string password, CancellationToken ct = default)
     {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            await LogService.WriteAsync(LogLevel.Error, $"Transmission URL invalide : {url}");
+            return false;
+        }
         _baseUrl = url.TrimEnd('/');
         IsConnected = false;
 
@@ -168,6 +174,11 @@ public sealed class TransmissionService : ITorrentService, IDisposable
     public async Task<bool> RenameFileAsync(TorrentEntry torrent, TorrentFileEntry file, string newName, CancellationToken ct = default)
     {
         if (!IsConnected) return false;
+        if (newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            await LogService.WriteAsync(LogLevel.Error, $"Transmission RenameFile : nom invalide '{newName}'");
+            return false;
+        }
         try
         {
             var payload = new

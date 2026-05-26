@@ -6,6 +6,7 @@ namespace AllRename.Services;
 public sealed class RenamerCore : IRenamerCore
 {
     private const int BatchSize = 20;
+    private static readonly string[] SubtitleExtensions = { ".srt", ".ass", ".sub", ".ssa", ".vtt", ".idx" };
 
     private readonly IParserService _parser;
     private readonly ITmdbService _tmdb;
@@ -123,6 +124,18 @@ public sealed class RenamerCore : IRenamerCore
                 continue;
             }
 
+            // S1 — path traversal guard: NewName is user-editable, reject any attempt to escape the source dir
+            string baseDir = entry.SourceDirectory;
+            if (!IsPathSafe(baseDir, entry.NewPath))
+            {
+                entry.Status = MatchStatus.Error;
+                entry.ErrorMessage = "Chemin cible hors du dossier source — opération refusée.";
+                await LogService.WriteAsync(LogLevel.Error, $"Path traversal bloqué : '{entry.NewPath}'");
+                done++;
+                progress?.Report((done, toRename.Count));
+                continue;
+            }
+
             try
             {
                 File.Move(entry.SourcePath, entry.NewPath, overwrite: false);
@@ -132,6 +145,9 @@ public sealed class RenamerCore : IRenamerCore
                     NewPath = entry.NewPath
                 });
                 await LogService.WriteAsync(LogLevel.Info, $"Renommé : '{entry.SourcePath}' → '{entry.NewPath}'");
+
+                // Renommer les sous-titres associés automatiquement
+                RenameMatchingSubtitles(entry.SourcePath, entry.NewPath, batch);
             }
             catch (Exception ex)
             {
@@ -145,5 +161,41 @@ public sealed class RenamerCore : IRenamerCore
         }
 
         return batch;
+    }
+
+    private static bool IsPathSafe(string baseDir, string targetPath)
+    {
+        string fullBase = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string fullTarget = Path.GetFullPath(targetPath);
+        return fullTarget.StartsWith(fullBase, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void RenameMatchingSubtitles(string oldVideoPath, string newVideoPath, RollbackBatch batch)
+    {
+        string dir = Path.GetDirectoryName(oldVideoPath) ?? string.Empty;
+        string videoBase = Path.GetFileNameWithoutExtension(oldVideoPath);
+        string newBase = Path.GetFileNameWithoutExtension(newVideoPath);
+
+        foreach (var ext in SubtitleExtensions)
+        {
+            // Match exact + variantes langue: movie.fr.srt, movie.en.srt
+            var candidates = Directory.GetFiles(dir, $"{videoBase}*{ext}");
+            foreach (var sub in candidates)
+            {
+                string subName = Path.GetFileName(sub);
+                string suffix = subName.Substring(videoBase.Length, subName.Length - videoBase.Length - ext.Length);
+                string newSubName = newBase + suffix + ext;
+                string newSubPath = Path.Combine(dir, newSubName);
+                try
+                {
+                    if (!File.Exists(newSubPath))
+                    {
+                        File.Move(sub, newSubPath, overwrite: false);
+                        batch.Entries.Add(new RollbackEntry { OriginalPath = sub, NewPath = newSubPath });
+                    }
+                }
+                catch { /* sous-titre non bloquant */ }
+            }
+        }
     }
 }

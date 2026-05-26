@@ -6,7 +6,7 @@
 
 Simulation Dry-Run · TMDB API · Plex · qBittorrent · Transmission · Rollback JSON
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple?style=flat-square)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -37,6 +37,7 @@ L'intégration avec **qBittorrent** et **Transmission** permet de renommer les f
   - 🟠 **Partial** — correspondance partielle, à vérifier
   - 🔴 **NotFound** — aucun résultat API
 - **Rollback (Ctrl+Z)** — annulation complète de la dernière session de renommage via un fichier JSON temporaire
+- **Renommage sous-titres automatique** — `.srt`, `.ass`, `.sub`, `.ssa`, `.vtt`, `.idx` renommés en même temps que la vidéo (variantes langue `.fr.srt`, `.en.srt` incluses)
 
 ### Métadonnées
 - **TMDB API** (gratuite) — titres officiels FR, années, numérotation épisodes
@@ -64,8 +65,8 @@ L'intégration avec **qBittorrent** et **Transmission** permet de renommer les f
 
 | Fichier | Description | Taille |
 |---------|-------------|--------|
-| [`AllRename_v1.0.0_Portable.exe`](https://github.com/heiphaistos44-crypto/AllRename/releases/latest) | Exécutable autonome — double-clic suffit | ~171 MB |
-| [`AllRename_v1.0.0_Setup.exe`](https://github.com/heiphaistos44-crypto/AllRename/releases/latest) | Installateur Windows avec raccourcis | ~80 MB |
+| [`AllRename_v1.1.0_Portable.exe`](https://github.com/heiphaistos44-crypto/AllRename/releases/latest) | Exécutable autonome — double-clic suffit | ~171 MB |
+| [`AllRename_v1.1.0_Setup.exe`](https://github.com/heiphaistos44-crypto/AllRename/releases/latest) | Installateur Windows avec raccourcis | ~80 MB |
 
 > **Pourquoi 171 MB pour le portable ?**
 > Le runtime .NET 8 est entièrement embarqué — aucune dépendance à installer sur la machine cible.
@@ -91,7 +92,7 @@ L'intégration avec **qBittorrent** et **Transmission** permet de renommer les f
 3. Copier la **clé API v3** (chaîne de 32 caractères hexadécimaux)
 4. Dans AllRename : champ **"Clé TMDB"** → coller → **Enregistrer**
 
-> La clé est stockée en mémoire pour la session. Elle n'est jamais écrite sur le disque ni committée dans le code.
+> La clé est chiffrée via DPAPI (Windows) et persistée dans `%LocalAppData%\AllRename\settings.json`. Elle n'est jamais committée dans le code.
 
 ### 2. Plex (optionnel)
 
@@ -218,14 +219,14 @@ build.bat all
 
 Sorties :
 - Portable → `.\publish\AllRename.exe`
-- Installateur → `.\installer\output\AllRename_v1.0.0_Setup.exe`
+- Installateur → `.\installer\output\AllRename_v1.1.0_Setup.exe`
 
 ---
 
 ## Roadmap
 
-- [ ] Persistance de la clé TMDB entre les sessions (chiffrement DPAPI)
-- [ ] Support des sous-titres (`.srt`, `.ass`) — renommage synchronisé avec la vidéo
+- [x] Persistance de la clé TMDB entre les sessions (chiffrement DPAPI) — v1.1.0
+- [x] Support des sous-titres (`.srt`, `.ass`) — renommage synchronisé avec la vidéo — v1.1.0
 - [ ] Intégration Tautulli pour les statistiques de renommage
 - [ ] Thème sombre
 - [ ] Rapport HTML exportable après renommage
@@ -237,6 +238,7 @@ Sorties :
 
 | Version | Date | Changements |
 |---------|------|-------------|
+| 1.1.0 | 2026-05-27 | Audit sécurité — path traversal, DPAPI settings, sous-titres auto, bugfixes |
 | 1.0.0 | 2026-05-26 | Release initiale — fichiers locaux, TMDB, Plex, qBittorrent, Transmission |
 
 ---
