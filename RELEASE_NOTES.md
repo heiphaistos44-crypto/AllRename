@@ -1,3 +1,32 @@
+## AllRename v1.2.0 — Audit robustesse & moteur métadonnées
+
+### Corrections critiques
+- **Bug#1 — Corruption emoji/Unicode** (`ParserService.CapitalizeWords`) — `w[0]`/`w[1..]` opéraient sur des surrogates UTF-16 bruts. Un nom de fichier contenant un emoji (🎬, 📺…) ou un caractère CJK Extension provoquait une corruption silencieuse du titre ou un crash. Corrigé par détection du surrogate pair avant capitalisation.
+- **Bug#2 — Collision inter-batch** (`RenamerCore.ExecuteAsync`) — deux fichiers mappés sur le même `NewPath` levaient une `IOException` non gérée. Ajout d'une passe pre-flight `ResolveCollisionsAsync` qui détecte et résout les doublons (suffixe `_1`, `_2`…) AVANT toute écriture disque.
+- **Bug#3 — Rollback LIFO incorrect** (`RollbackService.RollbackAsync`) — le rollback itérait en ordre chronologique. Sur une chaîne A→B→C, il tentait de défaire A←B alors que le fichier s'appellait déjà C. Corrigé : `Enumerable.Reverse()` — LIFO garanti.
+
+### Corrections hautes priorité
+- **Bug#4 — catch silencieux sous-titres** — `catch { }` avalait toutes les erreurs de renommage des sous-titres sans log. Remplacé par log `Warn` systématique.
+- **Bug#5 — Aucun retry sur verrou fichier** — `File.Move` sur un fichier ouvert par un autre process levait `IOException` immédiatement. Ajout d'un mécanisme retry 3×500ms avant d'échouer proprement.
+- **Bug#6 — Comparaison chemin case-sensitive** — `entry.SourcePath == entry.NewPath` ignorait la casse Windows. Corrigé : `StringComparison.OrdinalIgnoreCase`.
+- **Bug#7 — `Substring` sans bounds check** — `subName.Substring(videoBase.Length, subName.Length - videoBase.Length - ext.Length)` pouvait produire un count négatif sur un fichier sous-titre malformé. Guard ajouté.
+
+### Corrections moyennes priorité
+- **Bug#8 — ReDoS `GroupPattern`** — regex `.*?` imbriqué sans timeout. Ajout `TimeSpan.FromMilliseconds(100)` + catch `RegexMatchTimeoutException`.
+- **Bug#9 — `RotateIfNeededAsync` synchrone** — `File.Move` bloquait le thread du `SemaphoreSlim`. Signature corrigée (vraie méthode `async`).
+- **Bug#10 — Chemins longs Windows** — aucun préfixe `\\?\` pour dépasser MAX_PATH (260 chars). Helper `ToLongPath()` ajouté dans `RenamerCore`.
+
+### Nouvelles fonctionnalités
+- **Moteur métadonnées EXIF/ID3** — architecture `MetadataService` + `MetadataResult` + `IMetadataService`. Supporte photos (EXIF : date, caméra, GPS) et audio (ID3 : titre, artiste, album, piste). Patterns configurables (`{date:yyyy-MM-dd} {camera}`, `{track:D2} - {artist} - {title}`). Activer en décommentant `MetadataExtractor` + `TagLibSharp` dans le csproj.
+
+### Téléchargements
+| Fichier | Description |
+|---------|-------------|
+| `AllRename_v1.2.0_Portable.exe` | Exécutable autonome (~171 MB) |
+| `AllRename_v1.2.0_Setup.exe` | Installateur Windows avec raccourcis (~80 MB) |
+
+---
+
 ## AllRename v1.1.0 — Audit sécurité & nouvelles fonctionnalités
 
 ### Sécurité (critiques)

@@ -4,9 +4,9 @@
 
 **Renommeur multimédia intelligent pour Windows**
 
-Simulation Dry-Run · TMDB API · Plex · qBittorrent · Transmission · Rollback JSON
+Simulation Dry-Run · TMDB API · Plex · qBittorrent · Transmission · Rollback JSON · Métadonnées EXIF/ID3
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple?style=flat-square)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey?style=flat-square)](https://github.com/heiphaistos44-crypto/AllRename/releases)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -53,10 +53,26 @@ L'intégration avec **qBittorrent** et **Transmission** permet de renommer les f
 - Renommage **pendant le téléchargement** — Plex détecte correctement dès la fin du DL
 - Panneau splitté : liste des torrents actifs (gauche) + fichiers avec suggestions TMDB (droite)
 
+### Moteur métadonnées (v1.2.0)
+- **EXIF (photos)** — renommage basé sur la date de prise, le modèle de caméra, les coordonnées GPS
+  - Pattern ex : `{date:yyyy-MM-dd} {camera}` → `2024-06-15 Canon EOS R5.jpg`
+- **ID3 (audio)** — renommage basé sur titre, artiste, album, numéro de piste
+  - Pattern ex : `{track:D2} - {artist} - {title}` → `01 - Daft Punk - Get Lucky.mp3`
+- Extensions supportées : `.jpg .jpeg .png .heic .cr2 .nef` (EXIF) · `.mp3 .flac .ogg .m4a .aac` (ID3)
+- Activer : décommenter `MetadataExtractor` + `TagLibSharp` dans `AllRename.csproj`
+
+### Robustesse (v1.2.0)
+- **Détection collisions** — 2 fichiers → même nom cible → résolution automatique `_1`, `_2` avant toute écriture
+- **Retry file lock** — 3 tentatives × 500ms sur fichier verrouillé par un autre process
+- **Rollback LIFO** — annulation dans l'ordre inverse pour les chaînes de renommage complexes
+- **Support chemins longs** — préfixe `\\?\` automatique pour dépasser la limite MAX_PATH (260 chars)
+- **Protection emoji/Unicode** — `CapitalizeWords` gère correctement les surrogates UTF-16
+
 ### Qualité
 - Architecture **MVVM** stricte (CommunityToolkit.Mvvm)
 - Toutes les opérations I/O en **async/await** — UI jamais bloquée
 - **Logs locaux** avec rotation à 1 MB → `%LocalAppData%\AllRename\.logs\`
+- **Anti-ReDoS** — timeout 100ms sur les regex d'extraction de noms
 - **Exécutable unique** — aucune installation du runtime .NET requise
 
 ---

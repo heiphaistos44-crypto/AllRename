@@ -34,9 +34,11 @@ public sealed class ParserService : IParserService
         RegexOptions.Compiled);
 
     // Groupes entre crochets ou parenthèses contenant des infos release
+    // Timeout 100ms : anti-ReDoS sur input adversarial (.*? imbriqué)
     private static readonly Regex GroupPattern = new(
         @"\[.*?\]|\((?:.*?(?:rip|hdtv|web|blu|dvd|xvid|divx|hevc|avc|x26).*?)\)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(100));
 
     // Séparateurs multiples → espace unique
     private static readonly Regex SeparatorPattern = new(
@@ -80,8 +82,9 @@ public sealed class ParserService : IParserService
             name = name[..yearMatch.Index] + name[(yearMatch.Index + yearMatch.Length)..];
         }
 
-        // 3. Suppression groupes de release
-        name = GroupPattern.Replace(name, " ");
+        // 3. Suppression groupes de release (avec guard ReDoS)
+        try { name = GroupPattern.Replace(name, " "); }
+        catch (RegexMatchTimeoutException) { /* input anormal, on skip proprement */ }
 
         // 4. Suppression tags techniques
         name = TagPattern.Replace(name, " ");
@@ -120,8 +123,25 @@ public sealed class ParserService : IParserService
     private static string CapitalizeWords(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return input;
-        return string.Join(" ",
-            input.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                 .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w[1..].ToLower() : w));
+        var words = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < words.Length; i++)
+        {
+            string w = words[i];
+            if (w.Length == 0) continue;
+
+            // Fix Bug#1 : surrogate pair guard (emoji, CJK Extension, etc.)
+            // Un emoji comme 🎬 = 2 chars UTF-16 (surrogate pair).
+            // Appliquer char.ToUpper sur le high surrogate seul = corruption garantie.
+            if (char.IsHighSurrogate(w[0]) && w.Length > 1 && char.IsLowSurrogate(w[1]))
+            {
+                // Préserver la paire intacte, lowercaser uniquement le reste
+                words[i] = w[..2] + w[2..].ToLower();
+            }
+            else
+            {
+                words[i] = char.ToUpperInvariant(w[0]) + w[1..].ToLower();
+            }
+        }
+        return string.Join(' ', words);
     }
 }

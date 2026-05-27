@@ -1,4 +1,4 @@
-﻿using AllRename.Models;
+using AllRename.Models;
 using AllRename.Services.Interfaces;
 
 namespace AllRename.Services;
@@ -6,6 +6,10 @@ namespace AllRename.Services;
 public sealed class RenamerCore : IRenamerCore
 {
     private const int BatchSize = 20;
+    private const int MaxRetries = 3;
+    private const int RetryDelayMs = 500;
+    private const int MaxPathLength = 250; // Seuil avant préfixe \\?\
+
     private static readonly string[] SubtitleExtensions = { ".srt", ".ass", ".sub", ".ssa", ".vtt", ".idx" };
 
     private readonly IParserService _parser;
@@ -19,6 +23,9 @@ public sealed class RenamerCore : IRenamerCore
         _plex = plex;
     }
 
+    // ──────────────────────────────────────────────────────────────
+    //  SIMULATION (Dry Run)
+    // ──────────────────────────────────────────────────────────────
     public async Task<IReadOnlyList<FileEntry>> SimulateAsync(
         IEnumerable<string> filePaths,
         IProgress<(int current, int total)>? progress = null,
@@ -83,7 +90,6 @@ public sealed class RenamerCore : IRenamerCore
                 return entry;
             }
 
-            // Injecter numéros S/E depuis le parsing
             if (parsed.Season.HasValue) info.Season = parsed.Season;
             if (parsed.Episode.HasValue) info.Episode = parsed.Episode;
 
@@ -101,6 +107,9 @@ public sealed class RenamerCore : IRenamerCore
         return entry;
     }
 
+    // ──────────────────────────────────────────────────────────────
+    //  EXÉCUTION
+    // ──────────────────────────────────────────────────────────────
     public async Task<RollbackBatch> ExecuteAsync(
         IEnumerable<FileEntry> entries,
         IProgress<(int current, int total)>? progress = null,
@@ -110,6 +119,11 @@ public sealed class RenamerCore : IRenamerCore
             .Where(e => e.IsIncluded && e.Status is MatchStatus.Matched or MatchStatus.Partial)
             .ToList();
 
+        // ── Pre-flight : détection collisions inter-batch ──────────
+        // Fix Bug#2 : deux fichiers → même NewPath → IOException non gérée.
+        // On résout avant d'écrire quoi que ce soit sur le disque.
+        await ResolveCollisionsAsync(toRename);
+
         var batch = new RollbackBatch();
         int done = 0;
 
@@ -117,14 +131,15 @@ public sealed class RenamerCore : IRenamerCore
         {
             ct.ThrowIfCancellationRequested();
 
-            if (entry.SourcePath == entry.NewPath)
+            // Fix Bug#6 : comparaison OrdinalIgnoreCase (Windows est case-insensitive)
+            if (string.Equals(entry.SourcePath, entry.NewPath, StringComparison.OrdinalIgnoreCase))
             {
                 done++;
                 progress?.Report((done, toRename.Count));
                 continue;
             }
 
-            // S1 — path traversal guard: NewName is user-editable, reject any attempt to escape the source dir
+            // S1 — path traversal guard
             string baseDir = entry.SourceDirectory;
             if (!IsPathSafe(baseDir, entry.NewPath))
             {
@@ -136,9 +151,14 @@ public sealed class RenamerCore : IRenamerCore
                 continue;
             }
 
+            // S2 — long path guard (Fix Bug#10)
+            string safeSrc = ToLongPath(entry.SourcePath);
+            string safeDst = ToLongPath(entry.NewPath);
+
             try
             {
-                File.Move(entry.SourcePath, entry.NewPath, overwrite: false);
+                // Fix Bug#5 : retry sur file lock (HRESULT 0x80070020)
+                await TryMoveWithRetryAsync(safeSrc, safeDst);
                 batch.Entries.Add(new RollbackEntry
                 {
                     OriginalPath = entry.SourcePath,
@@ -146,8 +166,8 @@ public sealed class RenamerCore : IRenamerCore
                 });
                 await LogService.WriteAsync(LogLevel.Info, $"Renommé : '{entry.SourcePath}' → '{entry.NewPath}'");
 
-                // Renommer les sous-titres associés automatiquement
-                RenameMatchingSubtitles(entry.SourcePath, entry.NewPath, batch);
+                // Sous-titres associés
+                await RenameMatchingSubtitlesAsync(entry.SourcePath, entry.NewPath, batch);
             }
             catch (Exception ex)
             {
@@ -163,14 +183,101 @@ public sealed class RenamerCore : IRenamerCore
         return batch;
     }
 
+    // ──────────────────────────────────────────────────────────────
+    //  HELPERS — Sécurité
+    // ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fix Bug#2 : Résout les collisions NewPath au sein du batch AVANT toute écriture disque.
+    /// Stratégie : le premier fichier garde le nom ciblé, les suivants reçoivent _1, _2, etc.
+    /// </summary>
+    private static async Task ResolveCollisionsAsync(List<FileEntry> toRename)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in toRename)
+        {
+            // Collision avec fichier déjà existant sur disque (hors batch)
+            string targetPath = entry.NewPath;
+
+            if (seen.Contains(targetPath) || File.Exists(targetPath))
+            {
+                string dir = entry.SourceDirectory;
+                string nameNoExt = Path.GetFileNameWithoutExtension(entry.NewName);
+                string ext = Path.GetExtension(entry.NewName);
+                int suffix = 1;
+                string resolved;
+
+                do
+                {
+                    resolved = $"{nameNoExt}_{suffix++}{ext}";
+                    targetPath = Path.Combine(dir, resolved);
+                }
+                while (seen.Contains(targetPath) || File.Exists(targetPath));
+
+                await LogService.WriteAsync(LogLevel.Warn,
+                    $"Collision résolue : '{entry.NewPath}' → '{targetPath}'");
+                entry.NewName = resolved;
+            }
+
+            seen.Add(entry.NewPath);
+        }
+    }
+
+    /// <summary>
+    /// Fix Bug#5 : 3 tentatives avec délai sur IOException (verrou fichier).
+    /// </summary>
+    private static async Task TryMoveWithRetryAsync(string source, string dest)
+    {
+        for (int attempt = 1; attempt <= MaxRetries; attempt++)
+        {
+            try
+            {
+                File.Move(source, dest, overwrite: false);
+                return;
+            }
+            catch (IOException) when (attempt < MaxRetries)
+            {
+                await LogService.WriteAsync(LogLevel.Warn,
+                    $"Fichier verrouillé, tentative {attempt}/{MaxRetries} : '{source}'");
+                await Task.Delay(RetryDelayMs);
+            }
+            // Dernière tentative → laisse l'exception remonter
+        }
+        File.Move(source, dest, overwrite: false);
+    }
+
     private static bool IsPathSafe(string baseDir, string targetPath)
     {
-        string fullBase = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string fullBase = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar)
+                         + Path.DirectorySeparatorChar;
         string fullTarget = Path.GetFullPath(targetPath);
         return fullTarget.StartsWith(fullBase, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void RenameMatchingSubtitles(string oldVideoPath, string newVideoPath, RollbackBatch batch)
+    /// <summary>
+    /// Fix Bug#10 : ajoute le préfixe \\?\ sur Windows pour les chemins > 250 chars.
+    /// Permet de dépasser la limite MAX_PATH (260) sans modifier le registre.
+    /// </summary>
+    private static string ToLongPath(string path)
+    {
+        if (path.Length <= MaxPathLength) return path;
+        if (path.StartsWith(@"\\?\")) return path;
+        // UNC déjà \\server\share → \\?\UNC\server\share
+        if (path.StartsWith(@"\\"))
+            return @"\\?\UNC\" + path[2..];
+        return @"\\?\" + path;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    //  SOUS-TITRES
+    // ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fix Bug#4 + Bug#7 : log des erreurs + bounds check sur Substring.
+    /// </summary>
+    private static async Task RenameMatchingSubtitlesAsync(
+        string oldVideoPath, string newVideoPath, RollbackBatch batch)
     {
         string dir = Path.GetDirectoryName(oldVideoPath) ?? string.Empty;
         string videoBase = Path.GetFileNameWithoutExtension(oldVideoPath);
@@ -178,23 +285,51 @@ public sealed class RenamerCore : IRenamerCore
 
         foreach (var ext in SubtitleExtensions)
         {
-            // Match exact + variantes langue: movie.fr.srt, movie.en.srt
-            var candidates = Directory.GetFiles(dir, $"{videoBase}*{ext}");
+            string[] candidates;
+            try
+            {
+                candidates = Directory.GetFiles(dir, $"{videoBase}*{ext}");
+            }
+            catch (Exception ex)
+            {
+                await LogService.WriteAsync(LogLevel.Warn,
+                    $"Scan sous-titres impossible dans '{dir}': {ex.Message}");
+                continue;
+            }
+
             foreach (var sub in candidates)
             {
                 string subName = Path.GetFileName(sub);
-                string suffix = subName.Substring(videoBase.Length, subName.Length - videoBase.Length - ext.Length);
+
+                // Fix Bug#7 : guard bounds avant Substring
+                int suffixLen = subName.Length - videoBase.Length - ext.Length;
+                if (suffixLen < 0)
+                {
+                    await LogService.WriteAsync(LogLevel.Warn,
+                        $"Sous-titre ignoré (nom incohérent) : '{sub}'");
+                    continue;
+                }
+
+                string suffix = subName.Substring(videoBase.Length, suffixLen);
                 string newSubName = newBase + suffix + ext;
                 string newSubPath = Path.Combine(dir, newSubName);
+
                 try
                 {
                     if (!File.Exists(newSubPath))
                     {
                         File.Move(sub, newSubPath, overwrite: false);
                         batch.Entries.Add(new RollbackEntry { OriginalPath = sub, NewPath = newSubPath });
+                        await LogService.WriteAsync(LogLevel.Info,
+                            $"Sous-titre renommé : '{Path.GetFileName(sub)}' → '{newSubName}'");
                     }
                 }
-                catch { /* sous-titre non bloquant */ }
+                catch (Exception ex)
+                {
+                    // Fix Bug#4 : plus de catch silencieux
+                    await LogService.WriteAsync(LogLevel.Warn,
+                        $"Sous-titre non renommé '{sub}': {ex.Message}");
+                }
             }
         }
     }

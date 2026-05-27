@@ -37,7 +37,11 @@ public sealed class RollbackService : IRollbackService
     public async Task<bool> RollbackAsync(RollbackBatch batch, CancellationToken ct = default)
     {
         int errors = 0;
-        foreach (var entry in batch.Entries)
+        // Fix Bug#3 : LIFO obligatoire.
+        // Exemple : A→B puis B→C (2 entrées).
+        // Rollback forward tentera A←B alors que le fichier s'appelle déjà C → not found.
+        // Reverse() : on défait d'abord C→B, puis B→A. Ordre correct.
+        foreach (var entry in Enumerable.Reverse(batch.Entries))
         {
             ct.ThrowIfCancellationRequested();
             try

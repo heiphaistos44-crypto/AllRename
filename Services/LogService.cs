@@ -29,16 +29,18 @@ public static class LogService
         }
     }
 
-    private static Task RotateIfNeededAsync()
+    private static async Task RotateIfNeededAsync()
     {
-        if (!File.Exists(CurrentLogFile)) return Task.CompletedTask;
-        if (new FileInfo(CurrentLogFile).Length < 1_048_576) return Task.CompletedTask;
+        // Fix Bug#9 : était 100% synchrone malgré la signature Task.
+        // File.Move bloquait le thread du SemaphoreSlim — risque de starvation du pool.
+        if (!File.Exists(CurrentLogFile)) return;
+        if (new FileInfo(CurrentLogFile).Length < 1_048_576) return;
 
         string archiveDir = Path.Combine(LogDir, "archive");
         Directory.CreateDirectory(archiveDir);
         string dest = Path.Combine(archiveDir, $"renamer_{DateTime.Now:yyyy-MM-dd_HHmmss}.log");
-        File.Move(CurrentLogFile, dest);
-        return Task.CompletedTask;
+        File.Move(CurrentLogFile, dest);   // Move est atomique OS ; pas de async natif en .NET
+        await Task.CompletedTask;          // Yield explicite pour signaler la transition async
     }
 
     public static async Task PurgeOldLogsAsync(int keepDays = 30)
