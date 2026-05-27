@@ -2,7 +2,7 @@
 ; Génère : AllRename_v1.0.0_Setup.exe
 
 #define AppName "AllRename"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppPublisher "Heiphaistos"
 #define AppURL "https://github.com/heiphaistos44-crypto/AllRename"
 #define AppExeName "AllRename.exe"
