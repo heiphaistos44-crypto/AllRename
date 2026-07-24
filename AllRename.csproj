@@ -7,7 +7,8 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>AllRename</AssemblyName>
     <RootNamespace>AllRename</RootNamespace>
-    <Version>1.2.0</Version>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <Version>1.2.1</Version>
     <!-- Single File Publish (build.bat) -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -22,5 +23,8 @@
     <!-- Moteur métadonnées AXE 4 — décommenter pour activer -->
     <!-- <PackageReference Include="MetadataExtractor" Version="2.8.1" /> -->
     <!-- <PackageReference Include="TagLibSharp"        Version="2.3.0" /> -->
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Resources\app.ico" />
   </ItemGroup>
 </Project>
