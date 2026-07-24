@@ -4,7 +4,7 @@ chcp 65001 > NUL
 setlocal
 
 set APP_NAME=AllRename
-set APP_VERSION=1.2.0
+set APP_VERSION=1.2.1
 set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 set TARGET=%1
 if "%TARGET%"=="" set TARGET=portable

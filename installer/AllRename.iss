@@ -2,7 +2,7 @@
 ; Génère : AllRename_v1.0.0_Setup.exe
 
 #define AppName "AllRename"
-#define AppVersion "1.2.0"
+#define AppVersion "1.2.1"
 #define AppPublisher "Heiphaistos"
 #define AppURL "https://github.com/heiphaistos44-crypto/AllRename"
 #define AppExeName "AllRename.exe"
@@ -22,7 +22,7 @@ AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=.\output
 OutputBaseFilename=AllRename_v{#AppVersion}_Setup
-SetupIconFile=
+SetupIconFile=..\Resources\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
